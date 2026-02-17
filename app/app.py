@@ -1,279 +1,198 @@
-from flask import Flask, render_template_string
+from flask import Flask, render_template_string, jsonify, request
+import random
 
 app = Flask(__name__)
 
-balance = 200
+balance = 500
 jackpot = 1000
+symbols = ["🍒","🍋","🔔","💎","7️⃣"]
 
 HTML = """
 <!DOCTYPE html>
 <html>
 <head>
-<title>Vegas Casino Slot Machine</title>
+<title>Vegas Slot Machine</title>
 <style>
 body {
-    margin: 0;
-    padding: 0;
-    background: black;
-    font-family: 'Arial', sans-serif;
-    color: #fff;
+    background: radial-gradient(circle at center, #000 0%, #111 100%);
+    color: gold;
     text-align: center;
+    font-family: 'Arial', sans-serif;
+    overflow-x: hidden;
 }
-h1 {
-    font-size: 50px;
-    color: #ff0;
-    text-shadow: 0 0 10px #fff200, 0 0 20px #ff0, 0 0 30px #ff0, 0 0 40px #ff0;
-    margin-top: 20px;
-}
-h2 {
-    font-size: 25px;
-    text-shadow: 0 0 5px #fff, 0 0 10px #ff0, 0 0 20px #ff0;
-}
-.slot-container {
-    margin: 30px auto;
+h1 { font-size: 60px; margin-top: 20px; text-shadow: 0 0 10px #ff0; }
+h2 { margin: 10px 0; }
+.reels { display: flex; justify-content: center; margin: 20px; }
+.reel {
+    font-size: 100px;
+    width: 130px;
+    height: 130px;
+    margin: 10px;
+    border: 5px solid gold;
+    border-radius: 15px;
+    background: #222;
     display: flex;
     justify-content: center;
-    position: relative;
-}
-.reel-window {
-    width: 90px;
-    height: 90px;
-    overflow: hidden;
-    border: 4px solid #ff0;
-    margin: 5px;
-    background: #000;
-    border-radius: 10px;
-    box-shadow: 0 0 20px #ff0 inset, 0 0 30px #ff0;
-}
-.reel-strip {
-    display: flex;
-    flex-direction: column;
     align-items: center;
-    font-size: 70px;
+    box-shadow: 0 0 20px #ff0 inset;
+    transition: transform 0.2s;
 }
-.reel-strip div {
-    height: 90px;
-    line-height: 90px;
-    opacity: 1;
-    will-change: transform, opacity;
-    backface-visibility: hidden;
-    transform: translateZ(0);
-}
-button {
-    padding: 15px 30px;
-    font-size: 20px;
-    background: #ff0000;
-    color: white;
-    border: none;
-    border-radius: 10px;
-    cursor: pointer;
-    box-shadow: 0 0 15px red;
-    margin-top: 20px;
-}
-button:hover { background: #cc0000; }
-.win { animation: flash 0.5s infinite alternate; }
-@keyframes flash { from { color: yellow; } to { color: red; } }
-
-/* bounce effect for reel stop */
-.bounce {
-    animation: bounce 0.2s ease-out;
-}
-@keyframes bounce {
-    0%   { transform: translateY(var(--finalY)) }
-    50%  { transform: translateY(calc(var(--finalY) - 15px)) }
-    100% { transform: translateY(var(--finalY)) }
-}
-
-/* Flashing lights overlay */
-.flash-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-    background: rgba(255,255,0,0.2);
-    mix-blend-mode: screen;
-    animation: flashLights 0.3s infinite alternate;
-    z-index: 1000;
-    display: none; /* hidden by default */
-}
-@keyframes flashLights {
-    from { background: rgba(255,255,0,0.3); }
-    to { background: rgba(255,0,0,0.5); }
-}
-
-/* Glowing border for slot container on big win */
-.slot-container.win-glow {
-    box-shadow: 0 0 30px #ff0, 0 0 60px #ff0, 0 0 90px #ff0 inset;
-}
+.reel.spin { transform: scale(1.2); }
+button, input { font-size: 25px; padding: 12px 25px; margin: 10px; border: none; border-radius: 10px; cursor: pointer; }
+button { background: red; color: white; }
+button:hover { background: darkred; }
+input { width: 80px; text-align: center; }
+.flash { animation: flash 0.3s infinite alternate; }
+@keyframes flash { from { box-shadow: 0 0 20px #ff0 inset; } to { box-shadow: 0 0 50px #fff inset; } }
+.lever { width: 20px; height: 120px; background: silver; border-radius: 10px; display: inline-block; position: relative; margin-left: 20px; cursor: pointer; }
+.lever:active { transform: rotate(20deg); transform-origin: bottom center; transition: 0.1s; }
+#result { text-shadow: 0 0 10px #fff; }
 </style>
 </head>
 <body>
 
-<h1>🎰 VEGAS CASINO SLOT 🎰</h1>
+<h1>🎰 VEGAS SLOT MACHINE 🎰</h1>
 <h2>Balance: $<span id="balance">{{balance}}</span></h2>
 <h2>Jackpot: $<span id="jackpot">{{jackpot}}</span></h2>
 
-<div class="slot-container">
-    <div class="reel-window"><div class="reel-strip" id="reel1"></div></div>
-    <div class="reel-window"><div class="reel-strip" id="reel2"></div></div>
-    <div class="reel-window"><div class="reel-strip" id="reel3"></div></div>
-    <div class="flash-overlay" id="flashOverlay"></div>
+<div>
+<label for="bet">Choose your bet ($1-$500): </label>
+<input type="number" id="bet" value="50" min="1" max="500">
+<div class="lever" onclick="spin()"></div>
 </div>
 
-<input type="number" id="bet" placeholder="Bet amount">
+<div class="reels">
+<div class="reel" id="r1">7️⃣</div>
+<div class="reel" id="r2">7️⃣</div>
+<div class="reel" id="r3">7️⃣</div>
+</div>
+
 <button onclick="spin()">SPIN</button>
 <h2 id="result"></h2>
 
-<audio id="spin-sound" src="/static/sounds/slot_reels.mp3" preload="auto"></audio>
-<audio id="win-sound" src="/static/sounds/win-sound.mp3" preload="auto"></audio>
-<audio id="jackpot-sound" src="/static/sounds/jackpot-sound.mp3" preload="auto"></audio>
+<!-- Sounds -->
+<audio id="winSound" src="/static/sounds/win-sound.mp3"></audio>
+<audio id="jackpotSound" src="/static/sounds/jackpot-sound.mp3"></audio>
 
 <script>
-const symbols = ["🍒","🍋","🍊","⭐","💎","7️⃣"];
-const symbolHeight = 90;
-const reels = [
-    document.getElementById("reel1"),
-    document.getElementById("reel2"),
-    document.getElementById("reel3")
-];
-
-const spinSound = document.getElementById("spin-sound");
-const winSound = document.getElementById("win-sound");
-const jackpotSound = document.getElementById("jackpot-sound");
-
-const flashOverlay = document.getElementById("flashOverlay");
-const slotContainer = document.querySelector(".slot-container");
-
 let spinning = false;
+const r1 = document.getElementById("r1");
+const r2 = document.getElementById("r2");
+const r3 = document.getElementById("r3");
+const balanceEl = document.getElementById("balance");
+const jackpotEl = document.getElementById("jackpot");
+const resultEl = document.getElementById("result");
+const winSound = document.getElementById("winSound");
+const jackpotSound = document.getElementById("jackpotSound");
+const betEl = document.getElementById("bet");
+const symbols = ["🍒","🍋","🔔","💎","7️⃣"];
 
-// Build reel strips
-function buildStrip(reel) {
-    reel.innerHTML = "";
-    for (let i = 0; i < 30; i++) {
-        const s = document.createElement("div");
-        s.innerText = symbols[Math.floor(Math.random() * symbols.length)];
-        reel.appendChild(s);
+// ===== Web Audio API for spin sound =====
+let audioCtx = null;
+let spinBuffer = null;
+let spinSource = null;
+
+async function loadSpinSound(){
+    if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const res = await fetch("/static/sounds/slot_reels.mp3");
+    const arrayBuffer = await res.arrayBuffer();
+    spinBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+}
+loadSpinSound();
+
+function startSpinSound(){
+    if(!audioCtx || !spinBuffer) return;
+    spinSource = audioCtx.createBufferSource();
+    spinSource.buffer = spinBuffer;
+    spinSource.loop = true;
+    spinSource.connect(audioCtx.destination);
+    spinSource.start(0, 0.2); // Start at 0.2s into the audio
+}
+
+function stopSpinSound(){
+    if(spinSource){
+        spinSource.stop();
+        spinSource.disconnect();
+        spinSource = null;
     }
 }
-reels.forEach(buildStrip);
 
-// Spin function with 0.5s staggered start
-function spin() {
-    if (spinning) return;
+function sleep(ms){ return new Promise(resolve => setTimeout(resolve, ms)); }
+
+function animateReel(element, finalSymbol, duration){
+    return new Promise(async (resolve)=>{
+        let elapsed = 0;
+        let speed = 50;
+        while(elapsed < duration){
+            element.innerText = symbols[Math.floor(Math.random()*symbols.length)];
+            element.classList.add("spin");
+            await sleep(speed);
+            elapsed += speed;
+            speed += 5;
+        }
+        element.classList.remove("spin");
+        element.innerText = finalSymbol;
+        resolve();
+    });
+}
+
+async function spin(){
+    if(spinning) return;
     spinning = true;
+    resultEl.innerText = "";
 
-    let bet = parseInt(document.getElementById("bet").value);
-    let balance = parseInt(document.getElementById("balance").innerText);
-    let jackpot = parseInt(document.getElementById("jackpot").innerText);
-
-    if (!bet || bet <= 0 || bet > balance) {
-        document.getElementById("result").innerText = "Invalid bet!";
+    let betAmount = parseInt(betEl.value);
+    if(isNaN(betAmount) || betAmount < 1 || betAmount > 500){
+        alert("Enter a valid bet between 1 and 500.");
         spinning = false;
         return;
     }
 
-    spinSound.currentTime = 0;
-    spinSound.play();
+    let response = await fetch(`/spin?bet=${betAmount}`);
+    let data = await response.json();
+    if(data.error){ alert(data.error); spinning = false; return; }
 
-    balance -= bet;
-    jackpot += Math.floor(bet * 0.2);
-    document.getElementById("balance").innerText = balance;
-    document.getElementById("jackpot").innerText = jackpot;
-    document.getElementById("result").classList.remove("win");
-    document.getElementById("result").innerText = "Spinning...";
+    // Start spin sound immediately
+    startSpinSound();
 
-    const finalSymbols = reels.map(() => symbols[Math.floor(Math.random() * symbols.length)]);
-    
-    reels.forEach((reel, i) => {
-        setTimeout(() => {
-            const targetIndex = symbols.indexOf(finalSymbols[i]);
-            let steps = 0;
-            const totalSteps = 30 + targetIndex;
-            const intervalTime = 80; // base speed
-            const interval = setInterval(() => {
-                steps++;
-                reel.style.transform = `translateY(-${(steps % 30) * symbolHeight}px)`;
-                if (steps >= totalSteps) {
-                    clearInterval(interval);
+    // Animate reels in order with 0.5s stagger
+    const reelPromises = [];
+    reelPromises.push(animateReel(r1, data.reels[0], 2000));
+    await sleep(500);
+    reelPromises.push(animateReel(r2, data.reels[1], 2500));
+    await sleep(500);
+    reelPromises.push(animateReel(r3, data.reels[2], 3000));
 
-                    // Snap to final symbol
-                    const finalY = -targetIndex * symbolHeight;
-                    reel.style.transition = "none";
-                    reel.style.setProperty('--finalY', finalY + 'px');
-                    reel.classList.add('bounce');
-                    reel.style.transform = `translateY(${finalY}px)`;
+    // Wait for all reels to finish
+    await Promise.all(reelPromises);
 
-                    setTimeout(() => reel.classList.remove('bounce'), 200);
-                    reel.dataset.finalSymbol = finalSymbols[i];
-                }
-            }, intervalTime);
-        }, i * 500); // 0.5s staggered start
-    });
+    // Stop spin sound
+    stopSpinSound();
 
-    setTimeout(() => {
-        spinSound.pause();
-        spinSound.currentTime = 0;
+    balanceEl.innerText = data.balance;
+    jackpotEl.innerText = data.jackpot;
 
-        const results = reels.map(r => r.dataset.finalSymbol);
-        checkWin(bet, results);
+    // Play win/jackpot sounds
+    if(data.result === "jackpot"){
+        jackpotSound.currentTime=0; jackpotSound.play();
+        resultEl.innerText = "🎉 JACKPOT $" + data.win;
+        flashLights();
+    } else if(data.result === "win"){
+        winSound.currentTime=0; winSound.play();
+        resultEl.innerText = "✨ WIN $" + data.win;
+        flashLights();
+    } else {
+        resultEl.innerText = "Try Again";
+    }
 
-        spinning = false; // allow next spin
-    }, 2500 + 1000); 
+    spinning = false;
 }
 
-// Win logic with flashing lights
-function checkWin(bet, results) {
-    const balanceElem = document.getElementById("balance");
-    const jackpotElem = document.getElementById("jackpot");
-    let balance = parseInt(balanceElem.innerText);
-    let jackpot = parseInt(jackpotElem.innerText);
-
-    let winnings = 0;
-    let resultText = "No win this time.";
-
-    if (results.every(r => r==="7️⃣")) {
-        winnings = jackpot;
-        jackpot = 1000;
-        resultText = "💰 JACKPOT!!! 💰";
-        jackpotSound.currentTime = 0;
-        jackpotSound.play();
-    } else if (results[0]===results[1] && results[1]===results[2]) {
-        winnings = bet*6;
-        resultText = "🔥 BIG WIN! 🔥";
-        winSound.currentTime = 0;
-        winSound.play();
-    } else if (results[0]===results[1] || results[1]===results[2] || results[0]===results[2]) {
-        winnings = bet*2;
-        resultText = "You won $" + winnings;
-        winSound.currentTime = 0;
-        winSound.play();
-    }
-
-    // Show flashing lights for big win or jackpot
-    if (winnings >= bet*6) {
-        flashOverlay.style.display = "block";
-        slotContainer.classList.add("win-glow");
-        setTimeout(() => {
-            flashOverlay.style.display = "none";
-            slotContainer.classList.remove("win-glow");
-        }, 2000);
-    }
-
-    if (winnings>0) {
-        balance += winnings;
-        document.getElementById("result").classList.add("win");
-    } else {
-        document.getElementById("result").classList.remove("win");
-    }
-
-    balanceElem.innerText = balance;
-    jackpotElem.innerText = jackpot;
-    document.getElementById("result").innerText = resultText;
+function flashLights(){
+    document.body.classList.add("flash");
+    setTimeout(()=>{ document.body.classList.remove("flash"); }, 2000);
 }
 </script>
-
 </body>
 </html>
 """
@@ -282,5 +201,26 @@ function checkWin(bet, results) {
 def home():
     return render_template_string(HTML, balance=balance, jackpot=jackpot)
 
-if __name__ == "__main__":
+@app.route("/spin")
+def spin_route():
+    global balance, jackpot
+    bet = int(request.args.get("bet",50))
+    if bet < 1: bet = 1
+    if bet > 500: bet = 500
+    if balance < bet: return jsonify({"error":"Not enough money"})
+
+    balance -= bet
+    r1 = random.choice(symbols)
+    r2 = random.choice(symbols)
+    r3 = random.choice(symbols)
+    jackpot += bet // 2
+    result = "lose"
+    win = 0
+    if r1==r2==r3:
+        result="jackpot"; win=jackpot; balance+=jackpot; jackpot=1000
+    elif r1==r2 or r2==r3 or r1==r3:
+        result="win"; win=bet*4; balance+=win
+    return jsonify({"reels":[r1,r2,r3],"result":result,"win":win,"balance":balance,"jackpot":jackpot})
+
+if __name__=="__main__":
     app.run(host="0.0.0.0", port=5000)
