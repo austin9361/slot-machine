@@ -1,9 +1,7 @@
 from flask import Flask, render_template_string
-import random
 
 app = Flask(__name__)
 
-# Global state
 balance = 200
 jackpot = 1000
 
@@ -35,6 +33,7 @@ h2 {
     margin: 30px auto;
     display: flex;
     justify-content: center;
+    position: relative;
 }
 .reel-window {
     width: 90px;
@@ -55,6 +54,10 @@ h2 {
 .reel-strip div {
     height: 90px;
     line-height: 90px;
+    opacity: 1;
+    will-change: transform, opacity;
+    backface-visibility: hidden;
+    transform: translateZ(0);
 }
 button {
     padding: 15px 30px;
@@ -70,6 +73,40 @@ button {
 button:hover { background: #cc0000; }
 .win { animation: flash 0.5s infinite alternate; }
 @keyframes flash { from { color: yellow; } to { color: red; } }
+
+/* bounce effect for reel stop */
+.bounce {
+    animation: bounce 0.2s ease-out;
+}
+@keyframes bounce {
+    0%   { transform: translateY(var(--finalY)) }
+    50%  { transform: translateY(calc(var(--finalY) - 15px)) }
+    100% { transform: translateY(var(--finalY)) }
+}
+
+/* Flashing lights overlay */
+.flash-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    background: rgba(255,255,0,0.2);
+    mix-blend-mode: screen;
+    animation: flashLights 0.3s infinite alternate;
+    z-index: 1000;
+    display: none; /* hidden by default */
+}
+@keyframes flashLights {
+    from { background: rgba(255,255,0,0.3); }
+    to { background: rgba(255,0,0,0.5); }
+}
+
+/* Glowing border for slot container on big win */
+.slot-container.win-glow {
+    box-shadow: 0 0 30px #ff0, 0 0 60px #ff0, 0 0 90px #ff0 inset;
+}
 </style>
 </head>
 <body>
@@ -82,13 +119,13 @@ button:hover { background: #cc0000; }
     <div class="reel-window"><div class="reel-strip" id="reel1"></div></div>
     <div class="reel-window"><div class="reel-strip" id="reel2"></div></div>
     <div class="reel-window"><div class="reel-strip" id="reel3"></div></div>
+    <div class="flash-overlay" id="flashOverlay"></div>
 </div>
 
 <input type="number" id="bet" placeholder="Bet amount">
 <button onclick="spin()">SPIN</button>
 <h2 id="result"></h2>
 
-<!-- Audio -->
 <audio id="spin-sound" src="/static/sounds/slot_reels.mp3" preload="auto"></audio>
 <audio id="win-sound" src="/static/sounds/win-sound.mp3" preload="auto"></audio>
 <audio id="jackpot-sound" src="/static/sounds/jackpot-sound.mp3" preload="auto"></audio>
@@ -106,22 +143,23 @@ const spinSound = document.getElementById("spin-sound");
 const winSound = document.getElementById("win-sound");
 const jackpotSound = document.getElementById("jackpot-sound");
 
+const flashOverlay = document.getElementById("flashOverlay");
+const slotContainer = document.querySelector(".slot-container");
+
 let spinning = false;
 
 // Build reel strips
 function buildStrip(reel) {
     reel.innerHTML = "";
     for (let i = 0; i < 30; i++) {
-        let s = document.createElement("div");
+        const s = document.createElement("div");
         s.innerText = symbols[Math.floor(Math.random() * symbols.length)];
         reel.appendChild(s);
     }
 }
+reels.forEach(buildStrip);
 
-// Initialize reels
-reels.forEach(reel => buildStrip(reel));
-
-// Spin function
+// Spin function with 0.5s staggered start
 function spin() {
     if (spinning) return;
     spinning = true;
@@ -136,7 +174,6 @@ function spin() {
         return;
     }
 
-    // Play reel sound
     spinSound.currentTime = 0;
     spinSound.play();
 
@@ -147,40 +184,51 @@ function spin() {
     document.getElementById("result").classList.remove("win");
     document.getElementById("result").innerText = "Spinning...";
 
-    // Animate reels
-    let stopPositions = [];
+    const finalSymbols = reels.map(() => symbols[Math.floor(Math.random() * symbols.length)]);
+    
     reels.forEach((reel, i) => {
-        let targetIndex = Math.floor(Math.random() * symbols.length);
-        stopPositions.push(targetIndex);
-        let stripLength = reel.children.length;
-        let totalShift = (stripLength - 3 + targetIndex) * symbolHeight; // never scroll past symbols
-        reel.style.transition = `transform ${1.5 + i*0.5}s cubic-bezier(.17,.67,.83,.67)`;
-        reel.style.transform = `translateY(-${totalShift}px)`;
+        setTimeout(() => {
+            const targetIndex = symbols.indexOf(finalSymbols[i]);
+            let steps = 0;
+            const totalSteps = 30 + targetIndex;
+            const intervalTime = 80; // base speed
+            const interval = setInterval(() => {
+                steps++;
+                reel.style.transform = `translateY(-${(steps % 30) * symbolHeight}px)`;
+                if (steps >= totalSteps) {
+                    clearInterval(interval);
+
+                    // Snap to final symbol
+                    const finalY = -targetIndex * symbolHeight;
+                    reel.style.transition = "none";
+                    reel.style.setProperty('--finalY', finalY + 'px');
+                    reel.classList.add('bounce');
+                    reel.style.transform = `translateY(${finalY}px)`;
+
+                    setTimeout(() => reel.classList.remove('bounce'), 200);
+                    reel.dataset.finalSymbol = finalSymbols[i];
+                }
+            }, intervalTime);
+        }, i * 500); // 0.5s staggered start
     });
 
-    // After last reel stops
     setTimeout(() => {
-        checkWin(bet, stopPositions);
-        spinning = false;
         spinSound.pause();
         spinSound.currentTime = 0;
 
-        // Reset strips for next spin
-        reels.forEach(reel => buildStrip(reel));
-        reels.forEach(reel => reel.style.transform = "translateY(0px)");
-        reels.forEach(reel => reel.style.transition = "none");
-    }, 2500);
+        const results = reels.map(r => r.dataset.finalSymbol);
+        checkWin(bet, results);
+
+        spinning = false; // allow next spin
+    }, 2500 + 1000); 
 }
 
-// Check win
-function checkWin(bet, stopPositions) {
+// Win logic with flashing lights
+function checkWin(bet, results) {
     const balanceElem = document.getElementById("balance");
     const jackpotElem = document.getElementById("jackpot");
     let balance = parseInt(balanceElem.innerText);
     let jackpot = parseInt(jackpotElem.innerText);
-
-    // Get symbols
-    let results = stopPositions.map((pos, i) => symbols[pos]);
 
     let winnings = 0;
     let resultText = "No win this time.";
@@ -201,6 +249,16 @@ function checkWin(bet, stopPositions) {
         resultText = "You won $" + winnings;
         winSound.currentTime = 0;
         winSound.play();
+    }
+
+    // Show flashing lights for big win or jackpot
+    if (winnings >= bet*6) {
+        flashOverlay.style.display = "block";
+        slotContainer.classList.add("win-glow");
+        setTimeout(() => {
+            flashOverlay.style.display = "none";
+            slotContainer.classList.remove("win-glow");
+        }, 2000);
     }
 
     if (winnings>0) {
